@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useStore } from '../hooks/useStore';
 import * as THREE from 'three';
+import React from 'react';
 
 interface VoxelProps {
   position: THREE.Vector3;
@@ -9,7 +10,7 @@ interface VoxelProps {
   isPreview?: boolean;
 }
 
-export const Voxel = ({ position, color, opacity = 1, isPreview = false }: VoxelProps) => {
+export const Voxel = ({ position, color = '#1e88e5', opacity = 1, isPreview = false }: VoxelProps) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -172,6 +173,26 @@ export const Voxel = ({ position, color, opacity = 1, isPreview = false }: Voxel
     return () => cancelAnimationFrame(animationId);
   });
 
+  // 在初始渲染时为网格添加标识符，帮助射线检测识别这是体素对象
+  React.useEffect(() => {
+    if (meshRef.current) {
+      // 设置用户数据，便于在射线检测时识别
+      meshRef.current.userData = {
+        type: 'voxel',
+        isPreview: isPreview
+      };
+      
+      // 调试信息
+      console.log(`设置体素用户数据: type=voxel, isPreview=${isPreview}, position=${position.toArray()}`);
+    }
+  }, [isPreview, position]);
+
+  // 设置体素渲染选项
+  const meshOptions = {
+    castShadow: !isPreview,
+    receiveShadow: !isPreview,
+  };
+
   return (
     <mesh
       ref={meshRef}
@@ -179,9 +200,8 @@ export const Voxel = ({ position, color, opacity = 1, isPreview = false }: Voxel
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       onClick={handleClick}
-      castShadow={!isPreview}
-      receiveShadow={!isPreview}
-      userData={{ type: 'voxel', isPreview: isPreview }}
+      userData={{ type: 'voxel', isPreview }}
+      {...meshOptions}
     >
       <boxGeometry args={[0.301, 0.301, 0.301]} />
       <meshStandardMaterial
