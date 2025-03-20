@@ -67,7 +67,7 @@ export const Scene = () => {
         linear // 使用线性色彩空间，更稳定和更好的性能
         flat // 禁用色调映射，提高性能，更符合像素风格
       >
-        <color attach="background" args={['#87CEEB']} /> {/* 天蓝色背景 */}
+        <color attach="background" args={['#DBF2F5']} /> {/* 浅蓝绿色背景 */}
         
         <Suspense fallback={null}>
           {/* 主要光源 - 半球光 */}
@@ -126,7 +126,7 @@ export const Scene = () => {
           />
           
           {/* 地面网格 - 提供参考点 */}
-          <gridHelper args={[30, 30, '#888888', '#444444']} position={[0, -0.01, 0]} />
+          <gridHelper args={[30, 30, '#666666', '#444444']} position={[0, -0.01, 0]} />
         </Suspense>
         
         {/* 性能监视器 */}
