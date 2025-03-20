@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import { useStore } from '../hooks/useStore';
 import { Voxel } from './Voxel';
 import * as THREE from 'three';
@@ -236,10 +236,6 @@ export const VoxelWorld = () => {
   const { voxels, hoveredVoxel: storeHoveredVoxel, selectedFace, toolMode, pushPullFace: storePushPullFace, addVoxel, setHoveredVoxel, setSelectedFace, removeVoxel } = useStore();
   const { camera, raycaster, mouse, scene } = useThree();
   
-  // 临时向量对象，避免频繁创建新对象
-  const tempVector = useMemo(() => new THREE.Vector3(), []);
-  const tempNormal = useMemo(() => new THREE.Vector3(), []);
-  
   // 创建临时的体素预览
   const [tempVoxel, setTempVoxel] = useState<{
     position: THREE.Vector3;
@@ -306,9 +302,6 @@ export const VoxelWorld = () => {
         const face = intersection.face;
         
         if (face && voxelMesh) {
-          // 获取接触点的世界坐标
-          const point = intersection.point.clone();
-          
           // 获取面的法向量并转换为世界坐标
           const faceNormal = face.normal.clone();
           faceNormal.transformDirection(voxelMesh.matrixWorld);
@@ -567,73 +560,6 @@ export const VoxelWorld = () => {
     }
   }, [pushPullState.selectedVoxels, voxels, addVoxel, removeVoxel]);
 
-  // 优化空隙检测功能
-  const findEmptyCellNearRay = useCallback(() => {
-    if (!raycaster || voxels.length === 0) return null;
-    
-    // 获取射线
-    const ray = raycaster.ray.clone();
-    
-    // 创建一个立方体网格来检测空的网格单元
-    const cellSize = 0.3; // 3mm
-    const maxDistance = 20; // 最大检测距离
-    const origin = ray.origin.clone();
-    const direction = ray.direction.normalize();
-    
-    // 存储候选位置
-    const candidates = [];
-    
-    // 沿射线检查多个点 
-    for (let dist = 0.3; dist <= maxDistance; dist += 0.3) {
-      // 计算射线上的点
-      const point = origin.clone().add(direction.clone().multiplyScalar(dist));
-      
-      // 将点量化到网格
-      const gridX = Math.round(point.x / cellSize) * cellSize;
-      const gridY = Math.round(point.y / cellSize) * cellSize;
-      const gridZ = Math.round(point.z / cellSize) * cellSize;
-      
-      // 检查这个位置是否已经有体素
-      const occupied = voxels.some(voxel => 
-        Math.abs(voxel.position.x - gridX) < 0.01 && 
-        Math.abs(voxel.position.y - gridY) < 0.01 && 
-        Math.abs(voxel.position.z - gridZ) < 0.01
-      );
-      
-      // 如果位置没有被占用
-      if (!occupied) {
-        // 检查是否有相邻的体素(至少一个)，确保不会在孤立位置添加
-        const hasNeighbor = voxels.some(voxel => {
-          const dx = Math.abs(voxel.position.x - gridX);
-          const dy = Math.abs(voxel.position.y - gridY);
-          const dz = Math.abs(voxel.position.z - gridZ);
-          
-          // 检查是否是正好相邻(相差一个单位)
-          return (
-            (dx < 0.01 && dy < 0.01 && Math.abs(dz - cellSize) < 0.01) || // 前后相邻
-            (dx < 0.01 && Math.abs(dy - cellSize) < 0.01 && dz < 0.01) || // 上下相邻
-            (Math.abs(dx - cellSize) < 0.01 && dy < 0.01 && dz < 0.01)    // 左右相邻
-          );
-        });
-        
-        if (hasNeighbor) {
-          candidates.push({
-            position: new THREE.Vector3(gridX, gridY, gridZ),
-            distance: dist
-          });
-        }
-      }
-    }
-    
-    // 按距离排序，返回最近的有效位置
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => a.distance - b.distance);
-      return candidates[0].position;
-    }
-    
-    return null;
-  }, [raycaster, voxels]);
-  
   // 监听悬停体素变化，更新基于体素面的预览
   useEffect(() => {
     if (toolMode === 'add') {

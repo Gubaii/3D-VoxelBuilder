@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useStore } from '../hooks/useStore';
 import * as THREE from 'three';
-import { useThree } from '@react-three/fiber';
 
 interface VoxelProps {
   position: THREE.Vector3;
@@ -16,7 +15,7 @@ export const Voxel = ({ position, color, opacity = 1, isPreview = false }: Voxel
   const [isHovered, setIsHovered] = useState(false);
   const [currentColor, setCurrentColor] = useState(color);
   const [currentOpacity, setCurrentOpacity] = useState(opacity);
-  const { setHoveredVoxel, setSelectedFace, addVoxel, removeVoxel, toolMode, selectedFace } = useStore();
+  const { setHoveredVoxel, setSelectedFace, removeVoxel, toolMode } = useStore();
   
   // 定义平滑过渡系数 - 降低动画速率以提高稳定性
   const lerpFactor = 0.05; // 从0.1降低到0.05，更平滑的过渡
