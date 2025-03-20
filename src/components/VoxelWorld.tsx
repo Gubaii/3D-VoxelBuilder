@@ -43,28 +43,53 @@ const PushPullHandle = ({
   const handlePosition = useMemo(() => new THREE.Vector3(), []);
   const normalClone = useMemo(() => new THREE.Vector3(), []);
   
+  // 计算控制杆的旋转 - 确保它对齐到法线方向
+  const handleRotation = useMemo(() => {
+    // 创建一个四元数从 +Y 方向（圆柱体默认方向）旋转到目标法线方向
+    const quaternion = new THREE.Quaternion();
+    const upVector = new THREE.Vector3(0, 1, 0);
+    
+    // 检查法线是否与Y轴平行
+    if (Math.abs(normal.y) > 0.999) {
+      // 如果法线是 +Y 或 -Y，使用特殊处理
+      if (normal.y > 0) {
+        // 正Y轴，不需要旋转
+        quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0);
+      } else {
+        // 负Y轴，旋转180度
+        quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+      }
+    } else {
+      // 计算旋转轴（法线和Y轴的叉积）
+      const rotationAxis = new THREE.Vector3().crossVectors(upVector, normal).normalize();
+      
+      // 计算旋转角度
+      const angle = Math.acos(upVector.dot(normal));
+      
+      // 设置四元数
+      quaternion.setFromAxisAngle(rotationAxis, angle);
+    }
+    
+    // 将四元数转换为欧拉角
+    const euler = new THREE.Euler().setFromQuaternion(quaternion);
+    
+    return [euler.x, euler.y, euler.z] as [number, number, number];
+  }, [normal]);
+  
   // 预计算控制杆位置 - 确保每次渲染时位置都是最新的
   useEffect(() => {
     if (distance !== lastDistance.current) {
       lastDistance.current = distance;
     }
     
-    // 更新控制杆的位置：基础位置(面的中心) + 沿法线方向的位移(distance)
-    normalClone.copy(normal);
-    
     // 计算推拉杆的位置 - 始终保持在所选面的中心
     handlePosition.copy(position);
-    
-    // 只有当距离不为0时，才添加偏移
-    if (distance !== 0) {
-      handlePosition.add(normalClone.multiplyScalar(distance));
-    }
     
     // 如果groupRef已经存在，直接更新位置
     if (groupRef.current) {
       groupRef.current.position.copy(handlePosition);
     }
-  }, [position, normal, distance, handlePosition, normalClone]);
+  }, [position, distance, handlePosition]);
   
   // 添加鼠标状态追踪
   const [isHovered, setIsHovered] = useState(false);
@@ -100,24 +125,55 @@ const PushPullHandle = ({
     
     e.stopPropagation();
     
-    // 获取当前点和起始点之间的向量
-    tempVector.set(e.point.x, e.point.y, e.point.z).sub(startPosition.current);
+    // 使用射线投射来确定拖动方向
+    const { raycaster, camera } = useThree();
     
-    // 计算沿法线方向的移动距离 - 提高精度
-    const dot = tempVector.dot(normal);
+    // 创建一个射线，从相机指向鼠标位置
+    raycaster.setFromCamera(
+      new THREE.Vector2(
+        (e.clientX / window.innerWidth) * 2 - 1,
+        -(e.clientY / window.innerHeight) * 2 + 1
+      ), 
+      camera
+    );
     
-    // 使用更小的量化单位，提高灵敏度
-    const newDistance = Math.round(dot / 0.3) * 0.3;
+    // 计算射线方向与法线的点积，确定移动方向
+    const directionDot = raycaster.ray.direction.dot(normal);
     
-    // 只有当距离发生变化时才更新
-    if (newDistance !== lastDistance.current) {
-      lastDistance.current = newDistance;
-      onUpdate(newDistance);
+    // 获取当前鼠标位置和上一个鼠标位置之间的距离
+    const mouseDelta = new THREE.Vector2(
+      e.clientX - startPosition.current.x,
+      e.clientY - startPosition.current.y
+    );
+    
+    // 计算鼠标移动距离
+    const mouseMoveDistance = mouseDelta.length();
+    
+    // 根据相机距离调整灵敏度
+    const sensitivity = 0.01 * camera.position.distanceTo(position);
+    
+    // 计算拖动距离，考虑方向
+    const dragDistance = mouseMoveDistance * sensitivity * (directionDot > 0 ? -1 : 1);
+    
+    // 更新推拉距离，正负号取决于鼠标移动方向与当前拖动方向的一致性
+    const moveDirectionY = Math.sign(mouseDelta.y);
+    const dragDirectionSign = moveDirectionY * Math.sign(dragDistance);
+    
+    // 计算新的距离
+    const newDistance = lastDistance.current + (dragDirectionSign * Math.abs(dragDistance));
+    
+    // 量化距离到体素大小的倍数
+    const quantizedDistance = Math.round(newDistance / 0.3) * 0.3;
+    
+    // 只有当距离发生实质性变化时才更新
+    if (quantizedDistance !== lastDistance.current) {
+      lastDistance.current = quantizedDistance;
+      onUpdate(quantizedDistance);
     }
     
-    // 更新起始位置，以便下次移动能更连续
-    startPosition.current.set(e.point.x, e.point.y, e.point.z);
-  }, [normal, onUpdate, tempVector]);
+    // 更新起始位置
+    startPosition.current.set(e.clientX, e.clientY, 0);
+  }, [normal, onUpdate, position]);
   
   // 处理鼠标悬停
   const handlePointerOver = useCallback(() => {
@@ -147,71 +203,62 @@ const PushPullHandle = ({
   
   // 控制杆样式根据距离调整
   const cylinderLength = Math.max(0.5, Math.abs(distance) + 0.3);
-  const cylinderPosition = distance === 0 ? 0.3 : distance / 2 + 0.15;
   
   return (
     <group ref={groupRef}>
-      {/* 控制杆箭头 - 始终显示在杆的前端 */}
-      <mesh 
-        position={normal.clone().multiplyScalar(distance === 0 ? 0.6 : distance + 0.3)}
-        rotation={[
-          normal.y ? Math.PI/2 : 0,
-          normal.x ? -Math.PI/2 : (normal.z ? Math.PI : 0),
-          0
-        ]}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <coneGeometry args={[0.1, 0.2]} />
-        <meshStandardMaterial color={arrowColor} />
-      </mesh>
-      
-      {/* 控制杆柄 - 长度随距离变化 */}
-      <mesh 
-        position={normal.clone().multiplyScalar(cylinderPosition)}
-        rotation={[
-          normal.y ? Math.PI/2 : 0,
-          normal.x ? -Math.PI/2 : (normal.z ? Math.PI : 0),
-          0
-        ]}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <cylinderGeometry args={[0.05, 0.05, cylinderLength]} />
-        <meshStandardMaterial color={lineColor} />
-      </mesh>
-      
-      {/* 控制杆基座 - 始终在面中心 */}
-      <mesh
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <boxGeometry args={[0.2, 0.2, 0.2]} />
-        <meshStandardMaterial color={baseColor} transparent opacity={0.8} />
-      </mesh>
-      
-      {/* 增加一个大型但不可见的碰撞区域，使拖动更容易 */}
-      <mesh 
-        position={normal.clone().multiplyScalar(distance === 0 ? 0.3 : distance / 2)}
-        scale={[2, 2, Math.max(2, Math.abs(distance) * 2)]}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      <group rotation={handleRotation}>
+        {/* 控制杆箭头 - 始终显示在杆的前端 */}
+        <mesh 
+          position={[0, distance === 0 ? 0.6 : distance + 0.3, 0]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerMove={handlePointerMove}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <coneGeometry args={[0.1, 0.2]} />
+          <meshStandardMaterial color={arrowColor} />
+        </mesh>
+        
+        {/* 控制杆柄 - 长度随距离变化 */}
+        <mesh 
+          position={[0, distance === 0 ? 0.3 : distance / 2 + 0.15, 0]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerMove={handlePointerMove}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <cylinderGeometry args={[0.05, 0.05, cylinderLength]} />
+          <meshStandardMaterial color={lineColor} />
+        </mesh>
+        
+        {/* 控制杆基座 - 始终在面中心 */}
+        <mesh
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerMove={handlePointerMove}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <boxGeometry args={[0.2, 0.2, 0.2]} />
+          <meshStandardMaterial color={baseColor} transparent opacity={0.8} />
+        </mesh>
+        
+        {/* 增加一个大型但不可见的碰撞区域，使拖动更容易 */}
+        <mesh 
+          position={[0, distance === 0 ? 0.3 : distance / 2, 0]}
+          scale={[2, Math.max(2, Math.abs(distance) * 2), 2]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerMove={handlePointerMove}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <boxGeometry args={[0.5, 0.5, 0.5]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      </group>
     </group>
   );
 };
@@ -228,10 +275,42 @@ const FaceHighlight = ({
   color?: string;
   opacity?: number;
 }) => {
-  // 确定要渲染的面
-  const faceIndex = Math.abs(normal.x) > 0.5 ? 0 : // x轴面
-                    Math.abs(normal.y) > 0.5 ? 1 : // y轴面
-                    2; // z轴面
+  // 确定要渲染的面的旋转，使用四元数计算
+  const rotation = useMemo(() => {
+    // 创建一个四元数从 Z 方向（平面默认法线）旋转到目标法线方向
+    const quaternion = new THREE.Quaternion();
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    
+    // 检查法线是否与Z轴平行
+    if (Math.abs(normal.z) > 0.999) {
+      if (normal.z > 0) {
+        // 正Z轴，不需要旋转
+        quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0);
+      } else {
+        // 负Z轴，旋转180度
+        quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+      }
+    } else {
+      // 计算旋转轴（法线和Z轴的叉积）
+      const rotationAxis = new THREE.Vector3().crossVectors(zAxis, normal).normalize();
+      
+      // 如果旋转轴接近零向量（法线与Z轴平行），使用X轴作为旋转轴
+      if (rotationAxis.lengthSq() < 0.001) {
+        rotationAxis.set(1, 0, 0);
+      }
+      
+      // 计算旋转角度
+      const angle = Math.acos(zAxis.dot(normal));
+      
+      // 设置四元数
+      quaternion.setFromAxisAngle(rotationAxis, angle);
+    }
+    
+    // 将四元数转换为欧拉角
+    const euler = new THREE.Euler().setFromQuaternion(quaternion);
+    
+    return [euler.x, euler.y, euler.z] as [number, number, number];
+  }, [normal]);
   
   // 偏移距离，确保高亮面在体块表面的外侧一点点
   const offset = 0.002;
@@ -240,17 +319,6 @@ const FaceHighlight = ({
   const facePosition = position.clone().add(
     normal.clone().multiplyScalar(0.15 + offset)
   );
-  
-  // 确定面的旋转, 明确指定为元组类型
-  const rotation = useMemo(() => {
-    if (faceIndex === 0) { // x轴面
-      return [0, normal.x > 0 ? Math.PI / 2 : -Math.PI / 2, 0] as [number, number, number];
-    } else if (faceIndex === 1) { // y轴面
-      return [normal.y > 0 ? -Math.PI / 2 : Math.PI / 2, 0, 0] as [number, number, number];
-    } else { // z轴面
-      return [0, 0, normal.z > 0 ? 0 : Math.PI] as [number, number, number];
-    }
-  }, [faceIndex, normal]);
   
   return (
     <mesh
