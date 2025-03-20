@@ -233,7 +233,9 @@ const FaceHighlight = ({
 
 export const VoxelWorld = () => {
   const groupRef = useRef<THREE.Group>(null);
-  const { voxels, hoveredVoxel: storeHoveredVoxel, selectedFace, toolMode, pushPullFace: storePushPullFace, addVoxel, setHoveredVoxel, setSelectedFace, removeVoxel } = useStore();
+  const { voxels, hoveredVoxel: storeHoveredVoxel, selectedFace, toolMode, 
+    pushPullFace: _storePushPullFace, 
+    addVoxel, setHoveredVoxel, setSelectedFace, removeVoxel } = useStore();
   const { camera, raycaster, mouse, scene } = useThree();
   
   // 创建临时的体素预览
@@ -259,19 +261,8 @@ export const VoxelWorld = () => {
     highlightedFaces: []
   });
 
-  // 创建网格检测平面的引用
-  const gridHelperRef = useRef<THREE.GridHelper>(null);
-  
-  // 创建捕捉到网格的状态
-  const [gridSnapped, setGridSnapped] = useState(false);
-  
-  // 添加鼠标状态跟踪
-  const [mouseState, setMouseState] = useState({
-    isDragging: false,
-    startX: 0,
-    startY: 0,
-    startTime: 0
-  });
+  // 已确认使用的捕捉到网格的状态
+  const [_gridSnapped, setGridSnapped] = useState(false);
   
   // 添加网格捕捉功能，改进空隙检测
   const checkGridSnapping = useCallback(() => {
