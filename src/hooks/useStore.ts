@@ -21,6 +21,7 @@ interface StoreState {
   hoveredVoxel: Voxel | null;
   selectedFace: Face | null;
   toolMode: ToolMode;
+  hoveredPlanarVoxels: Voxel[];
   
   // 操作方法
   setHoveredVoxel: (voxel: Voxel | null) => void;
@@ -30,6 +31,7 @@ interface StoreState {
   removeVoxel: (position: Vector3) => void;
   pushPullFace: (normal: Vector3, distance: number) => void;
   resetWorld: () => void;
+  setHoveredPlanarVoxels: (voxels: Voxel[]) => void;
 }
 
 // 判断两个位置是否相同的辅助函数
@@ -38,7 +40,7 @@ const isSamePosition = (a: Vector3, b: Vector3): boolean => {
 };
 
 // 创建状态存储
-export const useStore = create<StoreState>((set) => ({
+export const useStore = create<StoreState>((set, get) => ({
   voxels: [
     // 初始体素（可以看作是一个起始的平台）
     { position: new Vector3(0, 0, 0), color: '#1e88e5' },
@@ -49,15 +51,33 @@ export const useStore = create<StoreState>((set) => ({
   hoveredVoxel: null,
   selectedFace: null,
   toolMode: 'add',
+  hoveredPlanarVoxels: [],
 
   // 设置悬停的体素
-  setHoveredVoxel: (voxel) => set({ hoveredVoxel: voxel }),
+  setHoveredVoxel: (voxel) => {
+    if (voxel) {
+      console.log(`设置悬停体素: 位置=${voxel.position.toArray()}`);
+    } else if (get().hoveredVoxel) {
+      console.log('清除悬停体素');
+    }
+    set({ hoveredVoxel: voxel });
+  },
   
   // 设置选中的面
-  setSelectedFace: (face) => set({ selectedFace: face }),
+  setSelectedFace: (face) => {
+    if (face) {
+      console.log(`设置选中面: 方向=${face.normal.toArray()}`);
+    } else if (get().selectedFace) {
+      console.log('清除选中面');
+    }
+    set({ selectedFace: face });
+  },
   
   // 设置工具模式
-  setToolMode: (mode) => set({ toolMode: mode }),
+  setToolMode: (mode) => {
+    console.log(`工具模式切换: ${get().toolMode} -> ${mode}`);
+    set({ toolMode: mode });
+  },
   
   // 添加新体素
   addVoxel: (voxel) => set((state) => {
@@ -223,5 +243,15 @@ export const useStore = create<StoreState>((set) => ({
       { position: new Vector3(0, 0, 0.3), color: '#1e88e5' },
       { position: new Vector3(0.3, 0, 0.3), color: '#1e88e5' },
     ]
-  })
+  }),
+
+  // 设置悬停平面体素
+  setHoveredPlanarVoxels: (voxels) => {
+    if (voxels.length > 0) {
+      console.log(`设置悬停平面体素，数量=${voxels.length}`);
+    } else if (get().hoveredPlanarVoxels.length > 0) {
+      console.log('清除悬停平面体素');
+    }
+    set({ hoveredPlanarVoxels: voxels });
+  }
 })); 
