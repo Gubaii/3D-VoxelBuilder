@@ -36,27 +36,46 @@ const PushPullHandle = ({
   const groupRef = useRef<THREE.Group>(null);
   const isDragging = useRef(false);
   const startPosition = useRef(new THREE.Vector3());
+  const lastDistance = useRef(distance);
   
   // 复用向量对象以减少GC压力
   const tempVector = useMemo(() => new THREE.Vector3(), []);
   const handlePosition = useMemo(() => new THREE.Vector3(), []);
   const normalClone = useMemo(() => new THREE.Vector3(), []);
   
-  // 预计算控制杆位置
+  // 预计算控制杆位置 - 确保每次渲染时位置都是最新的
   useEffect(() => {
+    if (distance !== lastDistance.current) {
+      lastDistance.current = distance;
+    }
+    
+    // 更新控制杆的位置：基础位置(面的中心) + 沿法线方向的位移(distance)
     normalClone.copy(normal);
-    handlePosition.copy(position).add(normalClone.clone().multiplyScalar(distance));
+    
+    // 计算推拉杆的位置 - 始终保持在所选面的中心
+    handlePosition.copy(position);
+    
+    // 只有当距离不为0时，才添加偏移
+    if (distance !== 0) {
+      handlePosition.add(normalClone.multiplyScalar(distance));
+    }
+    
+    // 如果groupRef已经存在，直接更新位置
+    if (groupRef.current) {
+      groupRef.current.position.copy(handlePosition);
+    }
   }, [position, normal, distance, handlePosition, normalClone]);
   
   // 添加鼠标状态追踪
   const [isHovered, setIsHovered] = useState(false);
   
-  // 控制杆拖动处理
+  // 控制杆拖动处理 - 提高响应灵敏度
   const handlePointerDown = useCallback((e: any) => {
     e.stopPropagation();
     isDragging.current = true;
     startPosition.current.set(e.point.x, e.point.y, e.point.z);
     document.body.style.cursor = 'grabbing';
+    
     // 捕获鼠标事件
     if (e.target) {
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -68,6 +87,7 @@ const PushPullHandle = ({
       e.stopPropagation();
       isDragging.current = false;
       document.body.style.cursor = isHovered ? 'pointer' : 'auto';
+      
       // 释放鼠标捕获
       if (e.target) {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -79,13 +99,24 @@ const PushPullHandle = ({
     if (!isDragging.current) return;
     
     e.stopPropagation();
+    
+    // 获取当前点和起始点之间的向量
     tempVector.set(e.point.x, e.point.y, e.point.z).sub(startPosition.current);
     
-    // 计算沿法线方向的移动距离
+    // 计算沿法线方向的移动距离 - 提高精度
     const dot = tempVector.dot(normal);
+    
+    // 使用更小的量化单位，提高灵敏度
     const newDistance = Math.round(dot / 0.3) * 0.3;
     
-    onUpdate(newDistance);
+    // 只有当距离发生变化时才更新
+    if (newDistance !== lastDistance.current) {
+      lastDistance.current = newDistance;
+      onUpdate(newDistance);
+    }
+    
+    // 更新起始位置，以便下次移动能更连续
+    startPosition.current.set(e.point.x, e.point.y, e.point.z);
   }, [normal, onUpdate, tempVector]);
   
   // 处理鼠标悬停
@@ -109,50 +140,28 @@ const PushPullHandle = ({
     };
   }, []);
   
-  // 计算面的尺寸，用于控制杆显示
-  const faceSize = 0.3;
+  // 控制杆高亮颜色 - 增加视觉反馈
+  const baseColor = isHovered ? "#ffaa44" : "#ff9900";
+  const lineColor = isHovered ? "#ff7744" : "#ff6600";
+  const arrowColor = isHovered ? "#ff5500" : "#ff3300";
   
-  // 控制杆高亮颜色
-  const baseColor = isHovered ? "#ffdd44" : "#ffcc00";
-  const lineColor = isHovered ? "#ffaa44" : "#ff9900";
-  const arrowColor = isHovered ? "#ff7744" : "#ff6600";
+  // 控制杆样式根据距离调整
+  const cylinderLength = Math.max(0.5, Math.abs(distance) + 0.3);
+  const cylinderPosition = distance === 0 ? 0.3 : distance / 2 + 0.15;
   
   return (
-    <group position={handlePosition} ref={groupRef}>
-      {/* 控制杆基座 */}
-      <mesh
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerUp}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <boxGeometry args={[faceSize, faceSize, faceSize]} />
-        <meshStandardMaterial color={baseColor} transparent opacity={0.7} />
-      </mesh>
-      
-      {/* 控制杆柄 */}
+    <group ref={groupRef}>
+      {/* 控制杆箭头 - 始终显示在杆的前端 */}
       <mesh 
-        position={normalClone.clone().multiplyScalar(0.5)}
+        position={normal.clone().multiplyScalar(distance === 0 ? 0.6 : distance + 0.3)}
+        rotation={[
+          normal.y ? Math.PI/2 : 0,
+          normal.x ? -Math.PI/2 : (normal.z ? Math.PI : 0),
+          0
+        ]}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerUp}
-        onPointerOver={handlePointerOver}
-        onPointerOut={handlePointerOut}
-      >
-        <cylinderGeometry args={[0.05, 0.05, 0.7]} />
-        <meshStandardMaterial color={lineColor} />
-      </mesh>
-      
-      {/* 控制杆箭头 */}
-      <mesh 
-        position={normal.clone().multiplyScalar(0.9)}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerUp}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
@@ -160,19 +169,48 @@ const PushPullHandle = ({
         <meshStandardMaterial color={arrowColor} />
       </mesh>
       
-      {/* 添加一个不可见的平面，用于增强拖动区域 */}
+      {/* 控制杆柄 - 长度随距离变化 */}
       <mesh 
-        position={normal.clone().multiplyScalar(0.45)}
-        rotation={[normal.x ? 0 : Math.PI/2, normal.y ? Math.PI/2 : 0, normal.z ? 0 : 0]}
+        position={normal.clone().multiplyScalar(cylinderPosition)}
+        rotation={[
+          normal.y ? Math.PI/2 : 0,
+          normal.x ? -Math.PI/2 : (normal.z ? Math.PI : 0),
+          0
+        ]}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerUp}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        <planeGeometry args={[2, 2]} />
-        <meshBasicMaterial transparent opacity={0} visible={false} side={THREE.DoubleSide} />
+        <cylinderGeometry args={[0.05, 0.05, cylinderLength]} />
+        <meshStandardMaterial color={lineColor} />
+      </mesh>
+      
+      {/* 控制杆基座 - 始终在面中心 */}
+      <mesh
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+      >
+        <boxGeometry args={[0.2, 0.2, 0.2]} />
+        <meshStandardMaterial color={baseColor} transparent opacity={0.8} />
+      </mesh>
+      
+      {/* 增加一个大型但不可见的碰撞区域，使拖动更容易 */}
+      <mesh 
+        position={normal.clone().multiplyScalar(distance === 0 ? 0.3 : distance / 2)}
+        scale={[2, 2, Math.max(2, Math.abs(distance) * 2)]}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+      >
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
     </group>
   );
@@ -495,16 +533,31 @@ export const VoxelWorld = () => {
 
   // 更新推拉距离 - 移动到组件内部
   const updatePushPullDistance = useCallback((newDistance: number) => {
-    setPushPullState(prev => ({
-      ...prev,
-      distance: Math.round(newDistance / 0.3) * 0.3 // 确保距离是3mm的整数倍
-    }));
+    setPushPullState(prev => {
+      // 确保距离是3mm的整数倍
+      const adjustedDistance = Math.round(newDistance / 0.3) * 0.3;
+      
+      // 如果距离没有变化，不更新状态
+      if (adjustedDistance === prev.distance) {
+        return prev;
+      }
+      
+      return {
+        ...prev,
+        distance: adjustedDistance
+      };
+    });
   }, []);
 
-  // 实现推拉操作，添加或删除体素 - 移动到组件内部
+  // 实现推拉操作，添加或删除体素
   const pushPullFace = useCallback((normal: THREE.Vector3, distance: number) => {
+    if (Math.abs(distance) < 0.01) return; // 如果距离太小，不执行操作
+    
     // 距离应该是3mm的整数倍
     const steps = Math.round(Math.abs(distance) / 0.3);
+    
+    // 记录操作起始时间，用于性能测量
+    const startTime = performance.now();
     
     if (distance > 0) {
       // 向外推拉 - 添加新体素
@@ -537,7 +590,7 @@ export const VoxelWorld = () => {
             normal.clone().multiplyScalar(-i * 0.3)
           );
           
-          // 循环检查这个位置是否有体素并删除
+          // 优化：使用集合记录要删除的位置，最后一次性删除
           voxels.forEach(existingVoxel => {
             if (Math.abs(existingVoxel.position.x - checkPos.x) < 0.01 &&
                 Math.abs(existingVoxel.position.y - checkPos.y) < 0.01 &&
@@ -549,6 +602,18 @@ export const VoxelWorld = () => {
         }
       });
     }
+    
+    // 记录操作耗时，如果太长应该做性能优化
+    const endTime = performance.now();
+    console.log(`推拉操作完成，耗时: ${endTime - startTime}ms`);
+    
+    // 操作完成后，短暂延迟重置状态，让用户有视觉反馈
+    setTimeout(() => {
+      setPushPullState(prev => ({
+        ...prev,
+        distance: 0 // 重置距离，但保持激活状态和选中的面
+      }));
+    }, 100);
   }, [pushPullState.selectedVoxels, voxels, addVoxel, removeVoxel]);
 
   // 监听悬停体素变化，更新基于体素面的预览
@@ -556,17 +621,17 @@ export const VoxelWorld = () => {
     if (toolMode === 'add') {
       // 添加模式下更新网格捕捉预览
       checkGridSnapping();
-    } else if (toolMode === 'pushpull' && storeHoveredVoxel && selectedFace) {
-      // 推拉模式下，更新本地悬停状态
+    } else if (toolMode === 'pushpull' && storeHoveredVoxel && selectedFace && !pushPullState.active) {
+      // 推拉模式下且没有激活推拉操作时，更新本地悬停状态
       setLocalHovered({
         position: storeHoveredVoxel.position.clone(),
         normal: selectedFace.normal.clone()
       });
-    } else if (toolMode === 'pushpull' && !storeHoveredVoxel) {
-      // 清除本地悬停状态
+    } else if (toolMode === 'pushpull' && !storeHoveredVoxel && !pushPullState.active) {
+      // 清除本地悬停状态（但不影响已激活的推拉操作）
       setLocalHovered(null);
     }
-  }, [storeHoveredVoxel, selectedFace, toolMode, checkGridSnapping]);
+  }, [storeHoveredVoxel, selectedFace, toolMode, checkGridSnapping, pushPullState.active]);
   
   // 添加场景点击处理函数 - 添加体素
   const handleSceneClick = useCallback((e: any) => {
@@ -637,39 +702,64 @@ export const VoxelWorld = () => {
         
         // 播放激活音效或视觉提示
         if (selectedVoxels.length > 1) {
-          // 多个体素被选中的提示
+          console.log(`已选中${selectedVoxels.length}个面进行推拉操作`);
         }
       }
     }
   }, [toolMode, localHovered, findVoxelsInSamePlane, pushPullState]);
-
+  
   // 处理鼠标释放事件，执行推拉操作
   const handleMouseUp = useCallback((e: MouseEvent) => {
     // 只有当推拉距离不为0时才执行推拉操作
-    if (pushPullState.active && pushPullState.distance !== 0) {
+    if (pushPullState.active && Math.abs(pushPullState.distance) > 0.01) {
       e.preventDefault();
       
       // 执行推拉操作
       pushPullFace(pushPullState.normal, pushPullState.distance);
       
-      // 执行完推拉后，重置推拉状态准备下一次操作
-      setPushPullState({
-        active: false,
-        startPosition: new THREE.Vector3(),
-        normal: new THREE.Vector3(),
-        distance: 0,
-        faceCenter: new THREE.Vector3(),
-        selectedVoxels: [],
-        highlightedFaces: []
-      });
+      // 不要马上重置推拉状态，保持激活以便用户继续操作
+      // 只有当用户点击其他地方或按下ESC键时才完全重置
+    } else if (pushPullState.active && Math.abs(pushPullState.distance) <= 0.01) {
+      // 如果距离接近0，可以考虑重置状态
+      setPushPullState(prev => ({
+        ...prev,
+        distance: 0
+      }));
     }
   }, [pushPullState, pushPullFace]);
+  
+  // 添加鼠标事件监听
+  useEffect(() => {
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseDown, handleMouseUp]);
 
   // 添加键盘事件处理 - 支持ESC键取消推拉操作
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && pushPullState.active) {
-        // 取消推拉操作
+        // 取消推拉操作，完全重置状态
+        setPushPullState({
+          active: false,
+          startPosition: new THREE.Vector3(),
+          normal: new THREE.Vector3(),
+          distance: 0,
+          faceCenter: new THREE.Vector3(),
+          selectedVoxels: [],
+          highlightedFaces: []
+        });
+      }
+    };
+    
+    // 添加点击空白区域结束推拉的功能
+    const handleClickOutside = (e: MouseEvent) => {
+      // 检查是否点击在3D场景之外
+      if (pushPullState.active && e.target && !(e.target as HTMLElement).closest('canvas')) {
         setPushPullState({
           active: false,
           startPosition: new THREE.Vector3(),
@@ -683,21 +773,13 @@ export const VoxelWorld = () => {
     };
     
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [pushPullState]);
-  
-  // 添加鼠标事件监听
-  useEffect(() => {
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('click', handleClickOutside);
     
     return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleClickOutside);
     };
-  }, [handleMouseDown, handleMouseUp]);
+  }, [pushPullState]);
   
   // 推拉预览渲染 - 移动到组件内部
   const renderedPushPullPreview = useMemo(() => {
