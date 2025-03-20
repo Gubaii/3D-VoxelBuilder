@@ -126,7 +126,7 @@ export const Scene = () => {
           />
           
           {/* 地面网格 - 提供参考点 */}
-          <gridHelper args={[30, 30, '#666666', '#444444']} position={[0, -0.01, 0]} />
+          <gridHelper args={[30, 30, '#333333', '#111111']} position={[0, -0.01, 0]} />
         </Suspense>
         
         {/* 性能监视器 */}
