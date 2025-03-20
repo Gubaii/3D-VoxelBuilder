@@ -97,8 +97,9 @@ const PushPullHandle = ({
   // 控制杆拖动处理 - 提高响应灵敏度
   const handlePointerDown = useCallback((e: any) => {
     e.stopPropagation();
+    console.log("控制杆：鼠标按下");
     isDragging.current = true;
-    startPosition.current.set(e.point.x, e.point.y, e.point.z);
+    startPosition.current.set(e.clientX, e.clientY, 0);
     document.body.style.cursor = 'grabbing';
     
     // 捕获鼠标事件
@@ -110,6 +111,7 @@ const PushPullHandle = ({
   const handlePointerUp = useCallback((e: any) => {
     if (isDragging.current) {
       e.stopPropagation();
+      console.log("控制杆：鼠标释放");
       isDragging.current = false;
       document.body.style.cursor = isHovered ? 'pointer' : 'auto';
       
@@ -120,60 +122,58 @@ const PushPullHandle = ({
     }
   }, [isHovered]);
   
-  const handlePointerMove = useCallback((e: any) => {
-    if (!isDragging.current) return;
+  // 添加全局鼠标事件监听
+  useEffect(() => {
+    // 处理全局鼠标移动，确保即使鼠标离开控制杆也能继续拖动
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      
+      // 计算屏幕空间的移动距离
+      const moveY = e.clientY - startPosition.current.y;
+      
+      // 根据法线方向确定正负号，向上拖动应该增加距离
+      const directionMultiplier = -1;
+      
+      // 增加灵敏度使拖动更容易
+      const sensitivity = 0.02;
+      
+      // 计算距离变化量
+      const distanceDelta = moveY * sensitivity * directionMultiplier;
+      const newDistance = lastDistance.current + distanceDelta;
+      
+      // 量化到最近的0.3单位（体素大小）
+      const quantizedDistance = Math.round(newDistance / 0.3) * 0.3;
+      
+      // 只有当量化后的距离发生变化时才更新
+      if (quantizedDistance !== lastDistance.current) {
+        lastDistance.current = quantizedDistance;
+        onUpdate(quantizedDistance);
+        console.log(`全局拖动：推拉距离更新为: ${quantizedDistance}`);
+      }
+      
+      // 更新起始位置
+      startPosition.current.set(e.clientX, e.clientY, 0);
+    };
     
-    e.stopPropagation();
+    // 处理全局鼠标释放
+    const handleGlobalMouseUp = () => {
+      if (isDragging.current) {
+        console.log("全局：鼠标释放");
+        isDragging.current = false;
+        document.body.style.cursor = 'auto';
+      }
+    };
     
-    // 使用射线投射来确定拖动方向
-    const { raycaster, camera } = useThree();
+    // 添加事件监听器
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
     
-    // 创建一个射线，从相机指向鼠标位置
-    raycaster.setFromCamera(
-      new THREE.Vector2(
-        (e.clientX / window.innerWidth) * 2 - 1,
-        -(e.clientY / window.innerHeight) * 2 + 1
-      ), 
-      camera
-    );
-    
-    // 计算射线方向与法线的点积，确定移动方向
-    const directionDot = raycaster.ray.direction.dot(normal);
-    
-    // 获取当前鼠标位置和上一个鼠标位置之间的距离
-    const mouseDelta = new THREE.Vector2(
-      e.clientX - startPosition.current.x,
-      e.clientY - startPosition.current.y
-    );
-    
-    // 计算鼠标移动距离
-    const mouseMoveDistance = mouseDelta.length();
-    
-    // 根据相机距离调整灵敏度
-    const sensitivity = 0.01 * camera.position.distanceTo(position);
-    
-    // 计算拖动距离，考虑方向
-    const dragDistance = mouseMoveDistance * sensitivity * (directionDot > 0 ? -1 : 1);
-    
-    // 更新推拉距离，正负号取决于鼠标移动方向与当前拖动方向的一致性
-    const moveDirectionY = Math.sign(mouseDelta.y);
-    const dragDirectionSign = moveDirectionY * Math.sign(dragDistance);
-    
-    // 计算新的距离
-    const newDistance = lastDistance.current + (dragDirectionSign * Math.abs(dragDistance));
-    
-    // 量化距离到体素大小的倍数
-    const quantizedDistance = Math.round(newDistance / 0.3) * 0.3;
-    
-    // 只有当距离发生实质性变化时才更新
-    if (quantizedDistance !== lastDistance.current) {
-      lastDistance.current = quantizedDistance;
-      onUpdate(quantizedDistance);
-    }
-    
-    // 更新起始位置
-    startPosition.current.set(e.clientX, e.clientY, 0);
-  }, [normal, onUpdate, position]);
+    // 清理函数
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [onUpdate]);
   
   // 处理鼠标悬停
   const handlePointerOver = useCallback(() => {
@@ -207,12 +207,24 @@ const PushPullHandle = ({
   return (
     <group ref={groupRef}>
       <group rotation={handleRotation}>
+        {/* 增加一个大型但半透明的碰撞区域，使拖动更容易 */}
+        <mesh 
+          position={[0, distance === 0 ? 0.3 : distance / 2, 0]}
+          scale={[0.5, Math.max(0.5, Math.abs(distance) + 0.5), 0.5]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <boxGeometry args={[0.5, 0.5, 0.5]} />
+          <meshBasicMaterial color="#ffaa44" transparent opacity={0.1} depthWrite={false} />
+        </mesh>
+        
         {/* 控制杆箭头 - 始终显示在杆的前端 */}
         <mesh 
           position={[0, distance === 0 ? 0.6 : distance + 0.3, 0]}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-          onPointerMove={handlePointerMove}
           onPointerOver={handlePointerOver}
           onPointerOut={handlePointerOut}
         >
@@ -225,7 +237,6 @@ const PushPullHandle = ({
           position={[0, distance === 0 ? 0.3 : distance / 2 + 0.15, 0]}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-          onPointerMove={handlePointerMove}
           onPointerOver={handlePointerOver}
           onPointerOut={handlePointerOut}
         >
@@ -237,26 +248,11 @@ const PushPullHandle = ({
         <mesh
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-          onPointerMove={handlePointerMove}
           onPointerOver={handlePointerOver}
           onPointerOut={handlePointerOut}
         >
           <boxGeometry args={[0.2, 0.2, 0.2]} />
           <meshStandardMaterial color={baseColor} transparent opacity={0.8} />
-        </mesh>
-        
-        {/* 增加一个大型但不可见的碰撞区域，使拖动更容易 */}
-        <mesh 
-          position={[0, distance === 0 ? 0.3 : distance / 2, 0]}
-          scale={[2, Math.max(2, Math.abs(distance) * 2), 2]}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerMove={handlePointerMove}
-          onPointerOver={handlePointerOver}
-          onPointerOut={handlePointerOut}
-        >
-          <boxGeometry args={[0.5, 0.5, 0.5]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       </group>
     </group>
