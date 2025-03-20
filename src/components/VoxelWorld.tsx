@@ -562,12 +562,6 @@ export const VoxelWorld = () => {
         position: storeHoveredVoxel.position.clone(),
         normal: selectedFace.normal.clone()
       });
-      
-      // 记录调试信息
-      console.log('设置推拉悬停状态:', 
-        '位置:', storeHoveredVoxel.position.toArray(), 
-        '法线:', selectedFace.normal.toArray()
-      );
     } else if (toolMode === 'pushpull' && !storeHoveredVoxel) {
       // 清除本地悬停状态
       setLocalHovered(null);
@@ -607,12 +601,6 @@ export const VoxelWorld = () => {
   
   // 处理鼠标按下事件 - 激活推拉工具
   const handleMouseDown = useCallback((e: MouseEvent) => {
-    // 记录鼠标按下时的工具模式和悬停状态
-    console.log('鼠标按下:', 
-      '工具模式:', toolMode, 
-      '本地悬停:', localHovered ? true : false
-    );
-    
     if (toolMode === 'pushpull' && localHovered && localHovered.normal) {
       e.preventDefault();
       
@@ -625,19 +613,15 @@ export const VoxelWorld = () => {
       const normal = localHovered.normal.clone();
       const position = localHovered.position.clone();
       
-      console.log('推拉激活: 位置', position.toArray(), '法线', normal.toArray());
-      
       // 查找同一平面上的所有体素
       const { voxels: selectedVoxels, center, faces } = findVoxelsInSamePlane(
         position, 
         normal
       );
       
-      console.log('找到同平面体素:', selectedVoxels.length, '面中心:', center.toArray());
-      
       // 只有找到有效体素才激活推拉操作
       if (selectedVoxels.length > 0) {
-        // 一次点击就激活推拉操作，不需要持续按住鼠标
+        // 激活推拉操作
         setPushPullState({
           active: true,
           startPosition: new THREE.Vector3(e.clientX, e.clientY, 0),
@@ -650,8 +634,11 @@ export const VoxelWorld = () => {
           })),
           highlightedFaces: faces
         });
-      } else {
-        console.log('没有找到有效体素面，无法激活推拉');
+        
+        // 播放激活音效或视觉提示
+        if (selectedVoxels.length > 1) {
+          // 多个体素被选中的提示
+        }
       }
     }
   }, [toolMode, localHovered, findVoxelsInSamePlane, pushPullState]);
@@ -677,6 +664,29 @@ export const VoxelWorld = () => {
       });
     }
   }, [pushPullState, pushPullFace]);
+
+  // 添加键盘事件处理 - 支持ESC键取消推拉操作
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && pushPullState.active) {
+        // 取消推拉操作
+        setPushPullState({
+          active: false,
+          startPosition: new THREE.Vector3(),
+          normal: new THREE.Vector3(),
+          distance: 0,
+          faceCenter: new THREE.Vector3(),
+          selectedVoxels: [],
+          highlightedFaces: []
+        });
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [pushPullState]);
   
   // 添加鼠标事件监听
   useEffect(() => {
