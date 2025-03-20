@@ -606,12 +606,95 @@ export const VoxelWorld = () => {
         return prev;
       }
       
+      // 检查是否跨越了新的体素单位(0.3)边界
+      const previousStep = Math.floor(Math.abs(prev.distance) / 0.3);
+      const currentStep = Math.floor(Math.abs(adjustedDistance) / 0.3);
+      const directionChanged = Math.sign(prev.distance) !== Math.sign(adjustedDistance);
+      
+      // 如果方向改变或跨越了新的体素边界，应当执行一次推拉操作
+      if (directionChanged || previousStep !== currentStep) {
+        // 计算需要执行的步数和方向
+        const direction = Math.sign(adjustedDistance);
+        console.log(`跨越新体素边界，需要执行推拉操作，方向: ${direction}, 步数: ${currentStep - previousStep}`);
+        
+        // 执行实际的推拉操作，但保持状态连续性
+        if (direction > 0) {
+          // 向外推，添加一层新体素
+          prev.selectedVoxels.forEach(voxel => {
+            const newPos = voxel.position.clone().add(
+              prev.normal.clone().multiplyScalar(currentStep * 0.3)
+            );
+            
+            // 检查这个位置是否已有体素
+            const hasVoxel = voxels.some(v => 
+              Math.abs(v.position.x - newPos.x) < 0.01 &&
+              Math.abs(v.position.y - newPos.y) < 0.01 &&
+              Math.abs(v.position.z - newPos.z) < 0.01
+            );
+            
+            if (!hasVoxel) {
+              // 添加新体素
+              addVoxel({
+                position: newPos,
+                color: voxel.color
+              });
+            }
+          });
+          
+          // 更新选中的体素和面的中心位置
+          return {
+            ...prev,
+            distance: adjustedDistance,
+            faceCenter: prev.faceCenter.clone().add(
+              prev.normal.clone().multiplyScalar(currentStep * 0.3)
+            ),
+            selectedVoxels: prev.selectedVoxels.map(voxel => ({
+              position: voxel.position.clone().add(
+                prev.normal.clone().multiplyScalar(currentStep * 0.3)
+              ),
+              color: voxel.color
+            })),
+            highlightedFaces: prev.highlightedFaces.map(face => ({
+              position: face.position.clone().add(
+                prev.normal.clone().multiplyScalar(currentStep * 0.3)
+              ),
+              normal: face.normal.clone(),
+              color: face.color
+            }))
+          };
+        } else if (direction < 0) {
+          // 向内推，删除一层体素
+          prev.selectedVoxels.forEach(voxel => {
+            const checkPos = voxel.position.clone().add(
+              prev.normal.clone().multiplyScalar(-currentStep * 0.3)
+            );
+            
+            // 查找并删除这个位置的体素
+            voxels.forEach(existingVoxel => {
+              if (Math.abs(existingVoxel.position.x - checkPos.x) < 0.01 &&
+                  Math.abs(existingVoxel.position.y - checkPos.y) < 0.01 &&
+                  Math.abs(existingVoxel.position.z - checkPos.z) < 0.01) {
+                // 删除这个体素
+                removeVoxel(existingVoxel.position);
+              }
+            });
+          });
+          
+          // 如果是向内推，推杆位置不变，但记录距离变化
+          return {
+            ...prev,
+            distance: adjustedDistance
+          };
+        }
+      }
+      
+      // 仅更新距离，不执行推拉操作
       return {
         ...prev,
         distance: adjustedDistance
       };
     });
-  }, []);
+  }, [voxels, addVoxel, removeVoxel]);
 
   // 实现推拉操作，添加或删除体素
   const pushPullFace = useCallback((normal: THREE.Vector3, distance: number) => {
@@ -646,6 +729,28 @@ export const VoxelWorld = () => {
           }
         }
       });
+      
+      // 向外推拉完成后，更新选中的体素和面的中心位置
+      setPushPullState(prev => ({
+        ...prev,
+        distance: 0, // 重置距离准备下一次操作
+        faceCenter: prev.faceCenter.clone().add(
+          normal.clone().multiplyScalar(steps * 0.3)
+        ),
+        selectedVoxels: prev.selectedVoxels.map(voxel => ({
+          position: voxel.position.clone().add(
+            normal.clone().multiplyScalar(steps * 0.3)
+          ),
+          color: voxel.color
+        })),
+        highlightedFaces: prev.highlightedFaces.map(face => ({
+          position: face.position.clone().add(
+            normal.clone().multiplyScalar(steps * 0.3)
+          ),
+          normal: face.normal.clone(),
+          color: face.color
+        }))
+      }));
     } else if (distance < 0) {
       // 向内推拉 - 删除体素
       pushPullState.selectedVoxels.forEach(voxel => {
@@ -665,20 +770,18 @@ export const VoxelWorld = () => {
           });
         }
       });
+      
+      // 向内推拉完成后，只重置距离，面中心和选中的体素位置保持不变
+      setPushPullState(prev => ({
+        ...prev,
+        distance: 0 // 重置距离准备下一次操作
+      }));
     }
     
     // 记录操作耗时，如果太长应该做性能优化
     const endTime = performance.now();
-    console.log(`推拉操作完成，耗时: ${endTime - startTime}ms`);
-    
-    // 操作完成后，短暂延迟重置状态，让用户有视觉反馈
-    setTimeout(() => {
-      setPushPullState(prev => ({
-        ...prev,
-        distance: 0 // 重置距离，但保持激活状态和选中的面
-      }));
-    }, 100);
-  }, [pushPullState.selectedVoxels, voxels, addVoxel, removeVoxel]);
+    console.log(`推拉操作完成，耗时: ${endTime - startTime}ms, 步数: ${steps}`);
+  }, [pushPullState, voxels, addVoxel, removeVoxel]);
 
   // 监听悬停体素变化，更新基于体素面的预览
   useEffect(() => {
