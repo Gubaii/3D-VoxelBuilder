@@ -1,0 +1,65 @@
+.tool-panel {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background-color: rgba(30, 30, 30, 0.8);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(5px);
+  z-index: 100;
+  max-width: 240px;
+}
+
+.tool-group {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tool-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(60, 60, 60, 0.8);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 50px;
+}
+
+.tool-button:hover {
+  background-color: rgba(80, 80, 80, 0.8);
+}
+
+.tool-button.active {
+  background-color: #1e88e5;
+}
+
+.tool-button span {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.tool-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.tool-info {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tool-info p {
+  margin: 4px 0;
+} 
